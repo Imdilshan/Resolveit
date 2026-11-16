@@ -46,41 +46,44 @@ public class DemoDataSeeder implements ApplicationRunner {
     @Override
     @Transactional
     public void run(ApplicationArguments args) {
-        if (userRepository.count() > 0) {
-            return;
-        }
-
         Role adminRole = getRole(Constants.ROLE_ADMIN);
         Role managerRole = getRole(Constants.ROLE_MANAGER);
         Role employeeRole = getRole(Constants.ROLE_EMPLOYEE);
         Role userRole = getRole(Constants.ROLE_USER);
 
-        createUser("System Admin", "admin@resolveit.local", "Admin@1234", adminRole);
-        User citizen = createUser("Aarav Sharma", "user@resolveit.local", "User@1234", userRole);
-        User citizen2 = createUser("Priya Verma", "priya@resolveit.local", "User@1234", userRole);
+        ensureUser("System Admin", "admin@resolveit.local", "Admin@1234", adminRole);
+        ensureUser("Aarav Sharma", "user@resolveit.local", "User@1234", userRole);
+        ensureUser("Priya Verma", "priya@resolveit.local", "User@1234", userRole);
 
-        Department facilities = departmentRepository.findByNameIgnoreCase("Facilities & Maintenance").orElse(null);
-        Department itDept = departmentRepository.findByNameIgnoreCase("IT & Network Services").orElse(null);
+        seedDepartment("Facilities & Maintenance", "Rohan Mehta", "manager@resolveit.local",
+                "Vikram Singh", "employee@resolveit.local", managerRole, employeeRole);
+        seedDepartment("IT & Network Services", "Neha Kapoor", "it.manager@resolveit.local",
+                "Karan Patel", "it.staff@resolveit.local", managerRole, employeeRole);
+        seedDepartment("Hostel & Sanitation", "Ananya Rao", "hostel.manager@resolveit.local",
+                "Arjun Das", "hostel.staff@resolveit.local", managerRole, employeeRole);
+        seedDepartment("Academic & Administration", "Meera Iyer", "academic.manager@resolveit.local",
+                "Ravi Kumar", "academic.staff@resolveit.local", managerRole, employeeRole);
 
-        User facilitiesMgr = createUser("Rohan Mehta", "manager@resolveit.local", "Manager@1234", managerRole);
-        User itMgr = createUser("Neha Kapoor", "it.manager@resolveit.local", "Manager@1234", managerRole);
+        log.info("Demo seed complete: ensured admin, complainants, and manager/employee accounts for all departments");
+    }
 
-        User emp1 = createUser("Vikram Singh", "employee@resolveit.local", "Employee@1234", employeeRole);
-        User emp2 = createUser("Sneha Nair", "sneha.staff@resolveit.local", "Employee@1234", employeeRole);
-        User emp3 = createUser("Karan Patel", "it.staff@resolveit.local", "Employee@1234", employeeRole);
-
-        if (facilities != null) {
-            addMember(facilities, facilitiesMgr, MemberType.MANAGER);
-            addMember(facilities, emp1, MemberType.EMPLOYEE);
-            addMember(facilities, emp2, MemberType.EMPLOYEE);
+    private void seedDepartment(String departmentName,
+                                String managerName,
+                                String managerEmail,
+                                String employeeName,
+                                String employeeEmail,
+                                Role managerRole,
+                                Role employeeRole) {
+        Department department = departmentRepository.findByNameIgnoreCase(departmentName).orElse(null);
+        if (department == null) {
+            log.warn("Skipping demo staff for missing department '{}'; run database seed migrations first", departmentName);
+            return;
         }
-        if (itDept != null) {
-            addMember(itDept, itMgr, MemberType.MANAGER);
-            addMember(itDept, emp3, MemberType.EMPLOYEE);
-        }
 
-        log.info("Seeded default ResolveIt demo users (admin@resolveit.local, manager@resolveit.local, employee@resolveit.local, user@resolveit.local) with citizen ids {}, {}",
-                citizen.getId(), citizen2.getId());
+        User manager = ensureUser(managerName, managerEmail, "Manager@1234", managerRole);
+        User employee = ensureUser(employeeName, employeeEmail, "Employee@1234", employeeRole);
+        ensureMember(department, manager, MemberType.MANAGER);
+        ensureMember(department, employee, MemberType.EMPLOYEE);
     }
 
     private Role getRole(String name) {
@@ -88,23 +91,26 @@ public class DemoDataSeeder implements ApplicationRunner {
                 .orElseGet(() -> roleRepository.save(new Role(name)));
     }
 
-    private User createUser(String name, String email, String rawPassword, Role role) {
-        User u = new User();
-        u.setName(name);
-        u.setEmail(email);
-        u.setPasswordHash(passwordEncoder.encode(rawPassword));
-        u.setRole(role);
-        u.setActive(true);
-        return userRepository.save(u);
+    private User ensureUser(String name, String email, String rawPassword, Role role) {
+        return userRepository.findByEmailIgnoreCase(email).orElseGet(() -> {
+            User user = new User();
+            user.setName(name);
+            user.setEmail(email);
+            user.setPasswordHash(passwordEncoder.encode(rawPassword));
+            user.setRole(role);
+            user.setActive(true);
+            return userRepository.save(user);
+        });
     }
 
-    private void addMember(Department dept, User user, MemberType type) {
-        DepartmentMember dm = new DepartmentMember();
-        dm.setDepartment(dept);
-        dm.setUser(user);
-        dm.setMemberType(type);
-        dm.setActive(true);
-        departmentMemberRepository.save(dm);
+    private void ensureMember(Department department, User user, MemberType type) {
+        DepartmentMember membership = departmentMemberRepository
+                .findByDepartmentIdAndUserId(department.getId(), user.getId())
+                .orElseGet(DepartmentMember::new);
+        membership.setDepartment(department);
+        membership.setUser(user);
+        membership.setMemberType(type);
+        membership.setActive(true);
+        departmentMemberRepository.save(membership);
     }
 }
-
